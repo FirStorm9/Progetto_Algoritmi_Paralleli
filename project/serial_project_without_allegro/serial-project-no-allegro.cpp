@@ -119,7 +119,7 @@ void create_matrix() {
     }
 }
 
-void neighbourt(int x, int y) {
+void transition_function(int *x, int *y) {
     int count_prey = 0;
     int count_predator = 0;
 
@@ -128,8 +128,9 @@ void neighbourt(int x, int y) {
             if (di == 0 && dj == 0)
                 continue;
 
-            int neighbor_x = x + di;
-            int neighbor_y = y + dj;
+            int neighbor_x = *x + di;
+            int neighbor_y = *y + dj;
+
 
             if (neighbor_x < 0){
                 if(readM[v(cfg->n_row-1, neighbor_y)] == PREY){
@@ -165,27 +166,34 @@ void neighbourt(int x, int y) {
                 }
             }
 
-            int current_state = readM[v(x, y)];
+            int current_state = readM[v(*x, *y)];
+
 
             if (current_state == EMPTY){
-                if(count_prey >= 2 && rand() % 100 < 25){
-                    writeM[v(x,y)] = PREY;
-                } else if(count_predator >= 2 && count_prey >= 1 ){ //&& rand() % 100 < 60
-                    writeM[v(x,y)] = PREDATOR;
-                } else{
-                    writeM[v(x,y)] = EMPTY;
+                if(count_prey >= 2 && rand() % 100 < 20){
+                    writeM[v(*x,*y)] = PREY;
                 }
-            } else if(current_state == PREY){
+                else if(count_predator >= 2 && count_prey >= 1 ){
+                    writeM[v(*x,*y)] = PREDATOR;
+                }
+                else{
+                    writeM[v(*x,*y)] = EMPTY;
+                }
+            }
+            else if(current_state == PREY){
                 if(count_predator > 0){
-                    writeM[v(x,y)] = EMPTY;
-                } else {
-                    writeM[v(x,y)] = PREY;
+                    writeM[v(*x,*y)] = EMPTY;
                 }
-            } else if(current_state == PREDATOR){
+                else {
+                    writeM[v(*x,*y)] = PREY;
+                }
+            }
+            else if(current_state == PREDATOR){
                 if(count_prey == 0 || count_predator >= 3){
-                    writeM[v(x,y)] = EMPTY;
-                } else{
-                    writeM[v(x,y)] = PREDATOR;
+                    writeM[v(*x,*y)] = EMPTY;
+                }
+                else{
+                    writeM[v(*x,*y)] = PREDATOR;
                 }
             }
         }
@@ -195,7 +203,7 @@ void neighbourt(int x, int y) {
 void* game(){
     for (int i = 1; i < cfg->n_row; ++i) {
         for (int j = 0; j < cfg->n_col; ++j) {
-            neighbourt(i, j);
+            transition_function(&i, &j);
         }
     }
     return NULL;

@@ -1,15 +1,20 @@
-// mpic++ -o main-no-allegro main-no-allegro.cpp && mpirun -np 4 ./main-no-allegro
+// mpic++ -o main main.cpp -lallegro -lallegro_primitives && mpirun -np 4 ./main
 
 // or
 
-// mpic++ -o main-no-allegro main-no-allegro.cpp  //in wsl: -pthread
-// mpirun -np 4 ./main-no-allegro
+// mpic++ -o main main.cpp -lallegro -lallegro_primitives  //in wsl: -pthread
+// mpirun -np 4 ./main
 
 #include <filesystem>
 #include <mpi.h>
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
+#include <allegro5/allegro.h>
+#include <allegro5/allegro_primitives.h>
+#include <allegro5/events.h>
+#include <allegro5/keyboard.h>
+#include <allegro5/display.h>
 #include "../Config.hpp"
 #include <stdlib.h>
 #include <time.h>
@@ -18,8 +23,6 @@
 using namespace std;
 
 const Config* cfg = new Config();
-
-bool flag = false;
 
 int* writeM = new int[(cfg->n_row/cfg->mpi_threads+2) * cfg->n_col];
 int* readM = new int[(cfg->n_row/cfg->mpi_threads+2) * cfg->n_col];
@@ -46,6 +49,11 @@ int my_rank, size_;
 int upper_rank, lower_rank;
 
 const int row_divided_by_mpi_threads = cfg->n_row / cfg->mpi_threads;
+
+// Allegro
+ALLEGRO_DISPLAY *display;
+ALLEGRO_EVENT_QUEUE *event_queue;
+const int cellDim = cfg->display_dim / cfg->n_row;
 
 void swap_matrix(){
     int * m_temp = readM;
@@ -123,6 +131,7 @@ void create_matrix() {
                     }
                 }
             }
+    
             break;
         case 1:
             create_matrix_in_file();
@@ -146,11 +155,12 @@ void swap_row(MPI_Datatype row_type){
     MPI_Isend(&readM[v(1, 0)], 1, row_type, upper_rank, 20, cart_comm, &request);
     MPI_Isend(&readM[v(cfg->n_row/cfg->mpi_threads, 0)], 1, row_type, lower_rank, 1, cart_comm, &request);
 
-    MPI_Recv(&readM[v(cfg->n_row/cfg->mpi_threads+1,0)], 1, row_type, lower_rank, 20, cart_comm, &status);
-    MPI_Recv(&readM[v(0, 0)], 1, row_type, upper_rank, 1, cart_comm, &status);
+    MPI_Irecv(&readM[v(cfg->n_row/cfg->mpi_threads+1,0)], 1, row_type, lower_rank, 20, cart_comm, &request);
+    MPI_Irecv(&readM[v(0, 0)], 1, row_type, upper_rank, 1, cart_comm, &request);
+
 }
 
-void neighbourt(int x, int y) {
+void transition_function(int *x, int *y) {
     int count_prey = 0;
     int count_predator = 0;
 
@@ -159,8 +169,8 @@ void neighbourt(int x, int y) {
             if (di == 0 && dj == 0)
                 continue;
 
-            int neighbor_x = x + di;
-            int neighbor_y = y + dj;
+            int neighbor_x = *x + di;
+            int neighbor_y = *y + dj;
 
             if (neighbor_x < 0){
                 if(readM[v(cfg->n_row-1, neighbor_y)] == PREY){
@@ -199,38 +209,37 @@ void neighbourt(int x, int y) {
                 }
             }
 
-            int current_state = readM[v(x, y)];
+            int current_state = readM[v(*x, *y)];
 
 
             if (current_state == EMPTY){
-                if(count_prey >= 2 && rand() % 100 < 25){
-                    writeM[v(x,y)] = PREY;
+                if(count_prey >= 2 && rand() % 100 < 20){
+                    writeM[v(*x,*y)] = PREY;
                 }
                 else if(count_predator >= 2 && count_prey >= 1 ){
-                    writeM[v(x,y)] = PREDATOR;
+                    writeM[v(*x,*y)] = PREDATOR;
                 }
                 else{
-                    writeM[v(x,y)] = EMPTY;
+                    writeM[v(*x,*y)] = EMPTY;
                 }
             }
             else if(current_state == PREY){
                 if(count_predator > 0){
-                    writeM[v(x,y)] = EMPTY;
+                    writeM[v(*x,*y)] = EMPTY;
                 }
                 else {
-                    writeM[v(x,y)] = PREY;
+                    writeM[v(*x,*y)] = PREY;
                 }
             }
             else if(current_state == PREDATOR){
                 if(count_prey == 0 || count_predator >= 3){
-                    writeM[v(x,y)] = EMPTY;
+                    writeM[v(*x,*y)] = EMPTY;
                 }
                 else{
-                    writeM[v(x,y)] = PREDATOR;
+                    writeM[v(*x,*y)] = PREDATOR;
                 }
             }
         }
-
     }
 }
 
@@ -238,7 +247,6 @@ void* game(void* arg){
 
     int* p = (int*)arg;
     int rank_posix = *p;
-
 
     const int start_position = rank_posix * (cfg->n_col / cfg->posix_threads);
     int end_position = start_position + (cfg->n_col / cfg->posix_threads);
@@ -251,7 +259,7 @@ void* game(void* arg){
     for (int i = 1; i < row_divided_by_mpi_threads+1; ++i) {
         for (int j = start_position; j < end_position; ++j) {
 
-            neighbourt(i, j);
+            transition_function(&i, &j);
 
         }
     }
@@ -261,7 +269,6 @@ void* game(void* arg){
     delete p;
     return NULL;
 }
-
 
 
 void posix_threads_handler(){
@@ -283,6 +290,73 @@ void posix_threads_handler(){
     pthread_barrier_destroy(&barrier);
 }
 
+
+// Allegro
+void drawCells() {
+
+    for (int i = 0; i < cfg->n_row; i++) {
+        for (int j = 0; j < cfg->n_col; j++) {
+            switch (combined_matrix[v(i,j)]) {
+                case EMPTY:
+                    al_draw_filled_rectangle(j * cellDim, i * cellDim, (j + 1) * cellDim, (i + 1) * cellDim, al_map_rgb(64, 64, 64)); //al_map_rgb(128, 64, 64)
+                    //printf("i: %d, j: %d\n", i, j);
+                    break;
+                case PREY:
+                    al_draw_filled_rectangle(j * cellDim, i * cellDim, (j + 1) * cellDim, (i + 1) * cellDim, al_map_rgb(0, 255, 0)); // green
+                    //printf("i: %d, j: %d\n", i, j);
+                    break;
+                case PREDATOR:
+                    al_draw_filled_rectangle(j * cellDim, i * cellDim, (j + 1) * cellDim, (i + 1) * cellDim, al_map_rgb(255, 0, 0)); // red
+                    //printf("i: %d, j: %d\n", i, j);
+                    break;
+                default:
+                    break;
+            }
+        }
+    }
+    al_flip_display();
+    al_rest(0);
+}
+
+
+void initializeAllegro() {
+    if (!al_init() || !al_init_primitives_addon()) {
+        fprintf(stderr, "Error while initializing Allegro\n");
+        MPI_Abort(MPI_COMM_WORLD, -1);
+    }
+
+    display = al_create_display(cfg->display_dim, cfg->display_dim);
+    event_queue = al_create_event_queue();
+
+    if (!display) {
+        fprintf(stderr, "Error in display creation\n");
+        MPI_Abort(MPI_COMM_WORLD, -1);
+    }
+
+    if (!event_queue) {
+        fprintf(stderr, "Error during creation of event queue\n");
+        al_destroy_display(display);
+        MPI_Abort(MPI_COMM_WORLD, -1);
+    }
+
+    al_register_event_source(event_queue, al_get_display_event_source(display));
+    al_install_keyboard();
+}
+
+
+// Premendo ESC, l'applicazione terminerà
+bool continueProcessing() {
+    int buf = 0;
+    if (my_rank == cfg->mpi_root) {
+        ALLEGRO_KEYBOARD_STATE key_state;
+        al_get_keyboard_state(&key_state);
+        if (!al_key_down(&key_state, ALLEGRO_KEY_ESCAPE))
+            buf = INT_MAX; // se ESC è stato premuto, il valore della variabile buf divente INT_MAX
+    }
+    MPI_Barrier(MPI_COMM_WORLD);
+    MPI_Bcast(&buf, 1, MPI_INT, cfg->mpi_root, MPI_COMM_WORLD);
+    return buf == INT_MAX; // se buf == INT_MAX il programma termina
+}
 
 void write_header(std::ofstream& file_write) {
 
@@ -331,7 +405,12 @@ void write_times_on_file(){
 
 void finalize(){
 
-    
+    if (my_rank == cfg->mpi_root) {
+        al_uninstall_keyboard();
+        al_destroy_display(display);
+        al_destroy_event_queue(event_queue);
+    }
+
     MPI_Type_free(&row_type);
     MPI_Comm_free(&cart_comm);
     
@@ -344,12 +423,17 @@ void finalize(){
 
 }
 
-
 int main(int argc, char *argv[]) {
 
     MPI_Init(NULL, NULL);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size_);
+
+    if (my_rank == cfg->mpi_root) {
+        initializeAllegro();
+        //print_matrix();
+    }
+
 
     // sezione topologia virtuale
     const int ndims = 1;
@@ -369,19 +453,19 @@ int main(int argc, char *argv[]) {
     MPI_Barrier(MPI_COMM_WORLD);
 
     int i = 0;
-    while(i < cfg->steps){
+    while(continueProcessing() && i < cfg->steps){
         start_time_step = MPI_Wtime();
         posix_threads_handler();
         swap_matrix();
         swap_row(row_type);
 
-        MPI_Gather(&readM[v(1,0)], (row_divided_by_mpi_threads) * cfg->n_col, MPI_INT, &combined_matrix[v(0,0)], (cfg->n_row/cfg->mpi_threads) * cfg->n_col, MPI_INT, 0, cart_comm);
+        MPI_Gather(&readM[v(1,0)], (cfg->n_row/cfg->mpi_threads) * cfg->n_col, MPI_INT, &combined_matrix[v(0,0)], (cfg->n_row/cfg->mpi_threads) * cfg->n_col, MPI_INT, 0, cart_comm);
 
-        //if (my_rank == cfg->mpi_root){
-            //print_matrix();
-        //}
         MPI_Barrier(MPI_COMM_WORLD);
-
+        if (my_rank == cfg->mpi_root){
+            drawCells();
+            //print_matrix();
+        }
         i++;
 
         // calculate time
