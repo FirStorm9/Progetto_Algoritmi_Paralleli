@@ -134,14 +134,14 @@ void create_matrix() {
     }
 }
 
-void swap_row(int rank, MPI_Datatype row_type){
+void swap_row(MPI_Datatype row_type){
 
     MPI_Request request;
     MPI_Status status;
 
     MPI_Cart_shift(cart_comm, 0, 1, &upper_rank, &lower_rank); // direzione: 0, spostamento: 1
 
-    const int dest = (rank == 0) ? cfg->mpi_threads-1 : 0;
+    const int dest = (my_rank == 0) ? cfg->mpi_threads-1 : 0;
 
     MPI_Isend(&readM[v(1, 0)], 1, row_type, upper_rank, 20, cart_comm, &request);
     MPI_Isend(&readM[v(cfg->n_row/cfg->mpi_threads, 0)], 1, row_type, lower_rank, 1, cart_comm, &request);
@@ -373,7 +373,7 @@ int main(int argc, char *argv[]) {
         start_time_step = MPI_Wtime();
         posix_threads_handler();
         swap_matrix();
-        swap_row(my_rank, row_type);
+        swap_row(row_type);
 
         MPI_Gather(&readM[v(1,0)], (row_divided_by_mpi_threads) * cfg->n_col, MPI_INT, &combined_matrix[v(0,0)], (cfg->n_row/cfg->mpi_threads) * cfg->n_col, MPI_INT, 0, cart_comm);
 
