@@ -10,7 +10,7 @@
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
-#include "../config.cfg"
+#include "../Config.hpp"
 #include <stdlib.h>
 #include <time.h>
 #include <iostream>
@@ -69,7 +69,7 @@ void create_matrix_in_file(){
     ofstream file_write("input.txt", ios::trunc);
 
     if (!file_write.is_open()) {
-        cerr << "Unable to open file in writing mode" << endl;
+        printf("Unable to open file in writing mode\n");
         exit(1);
     }
 
@@ -93,7 +93,7 @@ void read_matrix_from_file(){
     ifstream file_read("input.txt");
 
     if (!file_read.is_open()) {
-        cerr << "Unable to open file" << endl;
+        printf("Unable to open file\n");
         exit(1);
     }
 
@@ -101,7 +101,7 @@ void read_matrix_from_file(){
     for (int i = 0; i < row_divided_by_mpi_threads +2; i++) {
         for (int j = 0; j < cfg->n_col; j++) {
             if (!(file_read >> readM[v(i,j)])) {
-                cerr << "Error in matrix reading" << endl;
+                printf("Error in matrix reading\n");
                 exit(1);
             }
         }
@@ -318,7 +318,7 @@ void write_times_on_file(){
         file.open(file_path, std::ios::app);
     }
     else {
-        std::cout << "Creating results file" << std::endl;
+        printf("Creating results file\n");
         file.open(file_path);
         write_header(file);
     }
@@ -395,7 +395,7 @@ int main(int argc, char *argv[]) {
     elapsed_time = MPI_Wtime() - start;
 
     if(my_rank == cfg->mpi_root){
-        cout << "Time taken for the computation of " << cfg->steps <<" generations, with matrix size equal to " <<cfg->n_row <<"x"<< cfg->n_col<< ": " <<elapsed_time<<" seconds"<<endl;
+        printf("Time taken for the computation of %d generations, with matrix size equal to %dx%d: %lf seconds\n", cfg->steps, cfg->n_row, cfg->n_col, elapsed_time);
         printf("Average communication time at step %d: %lf seconds\n", i, avg_time_step);
     }
 
