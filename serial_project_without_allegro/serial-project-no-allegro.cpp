@@ -11,9 +11,11 @@
 #include <cstdlib>
 #include <ctime>
 #include <unistd.h>
-#include "../Config.hpp"
+#include "../config.cfg"
 #include <ctime>
 #include <chrono>
+#include <iostream>
+#include <fstream>
 using namespace std;
 
 const Config* cfg = new Config();
@@ -30,9 +32,6 @@ int* readM = new int[(cfg->n_row) * cfg->n_col];
 #define PREDATOR 2
 
 // time
-double total_time, generation_time, draw_time, start_time, end_time, communication_time = 0;
-
-double avg_time_step;
 std::chrono::duration<double> elapsed;
 
 void swap_matrix() {
@@ -108,14 +107,7 @@ void create_matrix() {
                     }
                 }
             }
-            /*
-            for (int i = cfg->n_row - 40 ; i < cfg->n_row + 40; i++) {
-                for (int j = cfg->n_col - 20; j < cfg->n_col + 20; j++) {
-                    if(i%3 != 0 && j%4 != 0){
-                        readM[v(i,j)] = PREDATOR;
-                    }
-                }
-            }*/
+            
             break;
         case 1:
             create_matrix_in_file();
@@ -225,7 +217,6 @@ void write_result(std::ofstream& file_write) {
     
     std::string separator = ",  ";
     file_write
-        << avg_time_step << separator
         << elapsed.count() << separator
         << "1" << separator
         << "0" << separator

@@ -11,9 +11,11 @@
 #include <unistd.h>
 #include <allegro5/allegro.h>
 #include <allegro5/allegro_primitives.h>
-#include "../Config.hpp"
+#include "../config.cfg"
 #include <stdlib.h>
 #include <time.h>
+#include <iostream>
+#include <fstream>
 using namespace std;
 
 const Config* cfg = new Config();
@@ -30,12 +32,12 @@ int* readM = new int[(cfg->n_row) * cfg->n_col];
 #define PREDATOR 2
 
 //time
-double total_time, generation_time, draw_time, start_time, end_time, communication_time = 0;
+std::chrono::duration<double> elapsed;
 
 // Allegro
 ALLEGRO_DISPLAY *display;
 ALLEGRO_EVENT_QUEUE *event_queue;
-const int cellDim = cfg->display_dim / cfg->n_row; //allegro
+const int cellDim = cfg->display_dim / cfg->n_row;
 
 void swap_matrix(){
     int * m_temp = readM;
@@ -107,7 +109,7 @@ void create_matrix() {
 
     switch(cfg->selection){
         case 0:
-            for (int i = 0; i < cfg->n_row; i++) { 
+            for (int i = 0; i < cfg->n_row; i++) {
                 for (int j = 0; j < cfg->n_col; j++) {
                     if(i%2 != 0 && j%2 != 0){
                         readM[v(i,j)] = PREY;
@@ -116,15 +118,6 @@ void create_matrix() {
                     }
                 }
             }
-/*
-            for (int i = cfg->n_row -40 ; i < cfg->n_row + 40; i++) {
-                for (int j = cfg->n_col - 20; j < cfg->n_col + 20; j++) { 
-                    if(i%3 != 0 && j%4 != 0){
-                        readM[v(i,j)] = PREDATOR;
-                    }
-                }
-            }
-*/
             break;
         case 1:
             create_matrix_in_file();
@@ -226,7 +219,7 @@ void neighbourt(int x, int y) {
 void* game(){
  auto start = std::chrono::high_resolution_clock::now();
     for (int i = 1; i < cfg->n_row; ++i) {
-        for (int j = 0; j < cfg->n_row; ++j) {
+        for (int j = 0; j < cfg->n_col; ++j) {
             neighbourt(i, j);
         }
     }
@@ -306,12 +299,11 @@ void initializeAllegro() {
 void write_header(std::ofstream& file_write) {
 
     std::string separator = ",  ";
-    file_write << "total_time" << separator
-        << "communication_time" << separator
-        << "generation_time" << separator
-        << "draw_time" << separator
-        << "start_time" << separator
-        << "end_time"<< separator
+    file_write
+        << "elapsed_time" << separator
+        << "mpi_threads" << separator
+        << "posix_threads" << separator
+        << "steps"<< separator
         << "matrix_size"
         << "\n";
 }
@@ -319,15 +311,13 @@ void write_header(std::ofstream& file_write) {
 void write_result(std::ofstream& file_write) {
     
     std::string separator = ",  ";
-    file_write << total_time << separator
-        << communication_time << separator
-        << generation_time << separator
-        << draw_time << separator
-        << start_time << separator
-        << end_time << separator
+    file_write
+        << elapsed.count() << separator
+        << cfg->mpi_threads << separator
+        << cfg->posix_threads << separator
+        << cfg->steps << separator 
         << cfg->n_row << "x" << cfg->n_col
         <<"\n";
-
 }
 
 void write_times_on_file(){
@@ -375,9 +365,8 @@ int main(int argc, char *argv[]) {
         i++;
     }
 
-    auto stop = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed = (stop - start);
-    cout << "Time taken for the computation of  " << cfg->steps << " generations, with matrix size equal to " << cfg->n_row << "x" << cfg->n_row << ": " << elapsed.count()<<" seconds"<<endl;    
+    elapsed = (std::chrono::high_resolution_clock::now() - start);
+    cout << "Time taken for the computation of  " << cfg->steps << " generations, with matrix size equal to " << cfg->n_row << "x" << cfg->n_row << ": " << elapsed.count() <<" seconds"<<endl;    
 
     write_times_on_file();
 

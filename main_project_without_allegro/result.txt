@@ -1,0 +1,2 @@
+avg_time_step,  elapsed_time,  mpi_threads,  posix_threads,  steps,  matrix_size
+0.0229306,  22.5117,  4,  2,  1000,  600x800

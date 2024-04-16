@@ -10,9 +10,11 @@
 #include <pthread.h>
 #include <time.h>
 #include <unistd.h>
-#include "../Config.hpp"
+#include "../config.cfg"
 #include <stdlib.h>
 #include <time.h>
+#include <iostream>
+#include <fstream>
 using namespace std;
 
 const Config* cfg = new Config();
@@ -32,13 +34,18 @@ pthread_barrier_t barrier;
 #define PREDATOR 2
 
 // time
-double total_time, generation_time, draw_time, start_time, end_time, sum_total_time, communication_time = 0;
+double total_time_step, start_time_step, end_time_step, sum_total_time_step;
+
+double avg_time_step;
+double elapsed_time;
 
 // MPI
 MPI_Datatype row_type;
 MPI_Comm cart_comm;
 int my_rank, size_;
 int upper_rank, lower_rank;
+
+const int row_divided_by_mpi_threads = cfg->n_row / cfg->mpi_threads;
 
 void swap_matrix(){
     int * m_temp = readM;
@@ -48,7 +55,7 @@ void swap_matrix(){
 
 void print_matrix() {
     printf("Matrix rank%d!\n",my_rank);
-    for (int i = 0; i < cfg->n_row / cfg->mpi_threads; i++) {
+    for (int i = 0; i < row_divided_by_mpi_threads; i++) {
         for (int j = 0; j < cfg->n_col; j++) {
             printf("%d ", readM[v(i,j)]);
         }
@@ -66,7 +73,7 @@ void create_matrix_in_file(){
         exit(1);
     }
 
-    for (int i = 0; i < cfg->n_row / cfg->mpi_threads +2; i++) {
+    for (int i = 0; i < row_divided_by_mpi_threads +2; i++) {
         for (int j = 0; j < cfg->n_col; j++) {
             int randNum = rand() % 100;
             if (randNum < 30) {
@@ -91,7 +98,7 @@ void read_matrix_from_file(){
     }
 
     // Lettura dei valori dalla matrice
-    for (int i = 0; i < cfg->n_row / cfg->mpi_threads +2; i++) {
+    for (int i = 0; i < row_divided_by_mpi_threads +2; i++) {
         for (int j = 0; j < cfg->n_col; j++) {
             if (!(file_read >> readM[v(i,j)])) {
                 cerr << "Error in matrix reading" << endl;
@@ -106,20 +113,13 @@ void create_matrix() {
 
     switch(cfg->selection){
         case 0:
-            for (int i = 0; i < cfg->n_row / cfg->mpi_threads +2; i++) {
+            for (int i = 0; i < row_divided_by_mpi_threads +2; i++) {
                 for (int j = 0; j < cfg->n_col; j++) {
                     if(i%2 != 0 && j%2 != 0){
                         readM[v(i,j)] = PREY;
                     }
-                }
-            }
-
-            if(my_rank == cfg->mpi_root){
-                for (int i = cfg->n_row / (cfg->mpi_threads*2); i < cfg->n_row/ cfg->mpi_threads; i++) {
-                    for (int j = (cfg->n_col / cfg->mpi_threads) - 20; j < (cfg->n_col / cfg->mpi_threads) + 20; j++) {
-                       if(i%3 != 0 && j%4 != 0){
-                            readM[v(i,j)] = PREDATOR;
-                        }
+                    else if(my_rank == cfg->mpi_root && i%3 != 0 && j%4 != 0 && i%2 != 0){
+                        readM[v(i,j)] = PREDATOR;
                     }
                 }
             }
@@ -248,7 +248,7 @@ void* game(void* arg){
         end_position += cfg->n_row % cfg->posix_threads;
     }
 
-    for (int i = 1; i < cfg->n_row / cfg->mpi_threads+1; ++i) {
+    for (int i = 1; i < row_divided_by_mpi_threads+1; ++i) {
         for (int j = start_position; j < end_position; ++j) {
 
             neighbourt(i, j);
@@ -287,12 +287,12 @@ void posix_threads_handler(){
 void write_header(std::ofstream& file_write) {
 
     std::string separator = ",  ";
-    file_write << "total_time" << separator
-        << "communication_time" << separator
-        << "generation_time" << separator
-        << "draw_time" << separator
-        << "start_time" << separator
-        << "end_time"<< separator
+    file_write
+        << "avg_time_step" << separator
+        << "elapsed_time" << separator
+        << "mpi_threads" << separator
+        << "posix_threads" << separator
+        << "steps"<< separator
         << "matrix_size"
         << "\n";
 }
@@ -300,15 +300,14 @@ void write_header(std::ofstream& file_write) {
 void write_result(std::ofstream& file_write) {
     
     std::string separator = ",  ";
-    file_write << total_time << separator
-        << communication_time << separator
-        << generation_time << separator
-        << draw_time << separator
-        << start_time << separator
-        << end_time << separator
+    file_write
+        << avg_time_step << separator
+        << elapsed_time << separator
+        << cfg->mpi_threads << separator
+        << cfg->posix_threads << separator
+        << cfg->steps << separator 
         << cfg->n_row << "x" << cfg->n_col
         <<"\n";
-
 }
 
 void write_times_on_file(){
@@ -347,8 +346,6 @@ void finalize(){
 
 
 int main(int argc, char *argv[]) {
-    const auto start = std::chrono::high_resolution_clock::now();
-    int media[cfg->mpi_threads];
 
     MPI_Init(NULL, NULL);
     MPI_Comm_rank(MPI_COMM_WORLD, &my_rank);
@@ -359,6 +356,8 @@ int main(int argc, char *argv[]) {
     const int dim_size[1] = {cfg->mpi_threads};
     const int periods[1] = {1};
     const int reorder = 0;
+
+    const auto start = MPI_Wtime();
 
     MPI_Cart_create(MPI_COMM_WORLD, ndims, dim_size, periods, reorder, &cart_comm);
 
@@ -371,42 +370,33 @@ int main(int argc, char *argv[]) {
 
     int i = 0;
     while(i < cfg->steps){
-        start_time = MPI_Wtime();
+        start_time_step = MPI_Wtime();
         posix_threads_handler();
         swap_matrix();
         swap_row(my_rank, row_type);
 
-        MPI_Gather(&readM[v(1,0)], (cfg->n_row/cfg->mpi_threads) * cfg->n_col, MPI_INT, &combined_matrix[v(0,0)], (cfg->n_row/cfg->mpi_threads) * cfg->n_col, MPI_INT, 0, cart_comm);
+        MPI_Gather(&readM[v(1,0)], (row_divided_by_mpi_threads) * cfg->n_col, MPI_INT, &combined_matrix[v(0,0)], (cfg->n_row/cfg->mpi_threads) * cfg->n_col, MPI_INT, 0, cart_comm);
 
-        if (my_rank == cfg->mpi_root){
+        //if (my_rank == cfg->mpi_root){
             //print_matrix();
-        }
+        //}
         MPI_Barrier(MPI_COMM_WORLD);
 
         i++;
 
         // calculate time
-        end_time = MPI_Wtime();
-        communication_time = end_time - start_time;
-        total_time = MPI_Wtime() - start_time;
-        sum_total_time = 0.0;
-        MPI_Reduce(&total_time, &sum_total_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
-        double avg_time = sum_total_time / size_;
-        if (!flag){
-            if (my_rank == cfg->mpi_root) {
-                printf("Average communication time at step %d: %lf seconds\n", i, avg_time);
-            }
-            if(my_rank == cfg->mpi_root){
-                printf("Communication time on step %d, is: %lf\n", i, communication_time);
-            }
-            flag=true;
-        }
+        total_time_step = MPI_Wtime() - start_time_step;
+        sum_total_time_step = 0.0;
+        MPI_Reduce(&total_time_step, &sum_total_time_step, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
     }
 
-    const auto stop = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double> elapsed_time = stop - start;
+    avg_time_step = sum_total_time_step / size_;
+
+    elapsed_time = MPI_Wtime() - start;
+
     if(my_rank == cfg->mpi_root){
-        cout << "Time taken for the computation of " << cfg->steps <<" generations, with matrix size equal to " <<cfg->n_row <<"x"<< cfg->n_row<< ": " <<elapsed_time.count()<<" seconds"<<endl;
+        cout << "Time taken for the computation of " << cfg->steps <<" generations, with matrix size equal to " <<cfg->n_row <<"x"<< cfg->n_col<< ": " <<elapsed_time<<" seconds"<<endl;
+        printf("Average communication time at step %d: %lf seconds\n", i, avg_time_step);
     }
 
     if(my_rank == cfg->mpi_root){

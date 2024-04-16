@@ -1,13 +1,9 @@
-// mpic++ -o main main.cpp -lallegro -lallegro_primitives  && mpirun -np 4 ./main
+// mpic++ -o main main.cpp -lallegro -lallegro_primitives && mpirun -np 4 ./main
 
 // or
 
 // mpic++ -o main main.cpp -lallegro -lallegro_primitives  //in wsl: -pthread
 // mpirun -np 4 ./main
-
-// or
-
-// mpic++ -fsanitize=address -o main main.cpp -lallegro -lallegro_primitives  && mpirun -np 4 ./main
 
 #include <filesystem>
 #include <mpi.h>
@@ -28,8 +24,6 @@ using namespace std;
 
 const Config* cfg = new Config();
 
-bool flag = false;
-
 int* writeM = new int[(cfg->n_row/cfg->mpi_threads+2) * cfg->n_col];
 int* readM = new int[(cfg->n_row/cfg->mpi_threads+2) * cfg->n_col];
 int* combined_matrix = new int[(cfg->n_row) * cfg->n_col];
@@ -43,7 +37,7 @@ pthread_barrier_t barrier;
 #define PREDATOR 2
 
 // time
-double total_time_step, generation_time, draw_time, start_time_step, end_time_step, sum_total_time_step, communication_time = 0;
+double total_time_step, start_time_step, end_time_step, sum_total_time_step;
 
 double avg_time_step;
 double elapsed_time;
@@ -53,6 +47,8 @@ MPI_Datatype row_type;
 MPI_Comm cart_comm;
 int my_rank, size_;
 int upper_rank, lower_rank;
+
+const int row_divided_by_mpi_threads = cfg->n_row / cfg->mpi_threads;
 
 // Allegro
 ALLEGRO_DISPLAY *display;
@@ -67,7 +63,7 @@ void swap_matrix(){
 
 void print_matrix() {
     printf("Matrix rank%d!\n",my_rank);
-    for (int i = 0; i < cfg->n_row / cfg->mpi_threads; i++) {
+    for (int i = 0; i < row_divided_by_mpi_threads; i++) {
         for (int j = 0; j < cfg->n_col; j++) {
             printf("%d ", readM[v(i,j)]);
         }
@@ -85,7 +81,7 @@ void create_matrix_in_file(){
         exit(1);
     }
 
-    for (int i = 0; i < cfg->n_row / cfg->mpi_threads +2; i++) {
+    for (int i = 0; i < row_divided_by_mpi_threads +2; i++) {
         for (int j = 0; j < cfg->n_col; j++) {
             int randNum = rand() % 100;
             if (randNum < 30) {
@@ -110,7 +106,7 @@ void read_matrix_from_file(){
     }
 
     // Lettura dei valori dalla matrice
-    for (int i = 0; i < cfg->n_row / cfg->mpi_threads +2; i++) {
+    for (int i = 0; i < row_divided_by_mpi_threads +2; i++) {
         for (int j = 0; j < cfg->n_col; j++) {
             if (!(file_read >> readM[v(i,j)])) {
                 cerr << "Error in matrix reading" << endl;
@@ -125,7 +121,7 @@ void create_matrix() {
 
     switch(cfg->selection){
         case 0:
-            for (int i = 0; i < cfg->n_row / cfg->mpi_threads +2; i++) {
+            for (int i = 0; i < row_divided_by_mpi_threads +2; i++) {
                 for (int j = 0; j < cfg->n_col; j++) {
                     if(i%2 != 0 && j%2 != 0){
                         readM[v(i,j)] = PREY;
@@ -260,7 +256,7 @@ void* game(void* arg){
         end_position += cfg->n_row % cfg->posix_threads;
     }
 
-    for (int i = 1; i < cfg->n_row / cfg->mpi_threads+1; ++i) {
+    for (int i = 1; i < row_divided_by_mpi_threads+1; ++i) {
         for (int j = start_position; j < end_position; ++j) {
 
             neighbourt(i, j);

@@ -1,0 +1,2 @@
+elapsed,  mpi_threads,  posix_threads,  steps,  matrix_size
+67.9843,  1,  0,  1000,  600x800
